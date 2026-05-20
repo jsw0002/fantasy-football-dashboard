@@ -1,0 +1,1732 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Greeble Console v2.0 - Integrated Viewscreen</title>
+    <style>
+      :root {
+        --bg-panel: #2b3033;
+        --border-metal: #444b50;
+        --screw-color: #555;
+        --glow-red: #ff3333;
+        --glow-green: #33ff33;
+        --crt-bg: #051105;
+      }
+
+      * {
+        box-sizing: border-box;
+        user-select: none;
+        touch-action: none; /* Crucial for touchscreen responsiveness */
+      }
+
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background-color: #111;
+        font-family: "Courier New", Courier, monospace;
+        color: #d4d4d4;
+      }
+
+      /* --- THE NEW MAIN LAYOUT --- 
+           Grid focuses heavily on the center Viewscreen, surrounding it with compact controls.
+        */
+      #control-panel {
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle at center, #3a4146 0%, #1a1e20 100%);
+        border: 12px solid #1a1a1a;
+        display: grid;
+        grid-template-columns: 180px 1fr 180px; /* Slim side columns, massive center */
+        grid-template-rows: 120px 1fr 100px; /* Slim top/bottom rows, massive center */
+        gap: 15px; /* Reduced gap to decrease wasted space */
+        padding: 10px;
+        position: relative;
+      }
+
+      /* --- COLD START STATES --- */
+      .bug-counter-display {
+        background: #050505;
+        border: 3px solid #1a1a1a;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        color: transparent; /* Hides the 0000 initially */
+        text-shadow: none;
+        font-size: 24px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        box-shadow: inset 0 0 15px #000;
+        transition: all 0.5s ease;
+        margin-bottom: 20px;
+      }
+
+      /* Standardized Module Base */
+      .module {
+        background: linear-gradient(135deg, #23272a 0%, #1b1e20 100%);
+        border: 2px solid var(--border-metal);
+        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+        border-radius: 4px;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+      }
+
+      /* Corner Screws (Reduced size) */
+      .module::before,
+      .module::after {
+        content: "⊕";
+        position: absolute;
+        color: var(--screw-color);
+        font-size: 10px;
+        top: 2px;
+      }
+      .module::before {
+        left: 2px;
+      }
+      .module::after {
+        right: 2px;
+      }
+
+      .module-title {
+        position: absolute;
+        top: 2px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 9px;
+        letter-spacing: 1px;
+        color: #555; /* Dimmed when off */
+        text-transform: uppercase;
+        pointer-events: none;
+        transition: color 0.5s ease;
+      }
+
+      /* ====== THE UPGRADE: CENTRAL VIEWSCREEN ====== */
+      .central-viewscreen-module {
+        grid-column: 2;
+        grid-row: 2;
+        display: flex;
+        flex-direction: column;
+        padding: 5px; /* Minimal padding */
+        border: 6px solid #111; /* Heavy framing */
+      }
+
+      .viewscreen-bezel {
+        width: 100%;
+        height: 100%;
+        background: #000;
+        border: 8px solid #333;
+        border-radius: 10px;
+        box-shadow: inset 0 0 20px rgba(0, 0, 0, 1);
+        overflow: hidden;
+        position: relative;
+        display: flex; /* Ensures the iframe expands to full container bounds */
+      }
+
+      /* The actual embedded browser container */
+      #viewscreen-iframe {
+        width: 100%;
+        height: 100%;
+        flex-grow: 1;
+        border: none;
+        background-color: #000; /* Start pure black */
+        opacity: 0; /* Hidden when off */
+        transition: opacity 1.5s ease;
+      }
+
+      #iframe-status {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 2vw;
+        color: #33ff33;
+        text-shadow: 0 0 10px #33ff33;
+        pointer-events: none;
+        opacity: 0; /* Hidden when off */
+        transition: opacity 0.5s ease;
+        text-align: center;
+        white-space: pre-line;
+        max-width: 80%;
+        line-height: 1.3;
+      }
+
+      /* ====== SURROUNDING COMPACT CONTROLS ====== */
+
+      /* 1. Master Knife Switch (Left Slim Column, rows 1-2) */
+      .master-power-module {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+      }
+
+      /* 6. Rotary Selector Knob (Left Column, Row 3) */
+      .rotary-module {
+        grid-column: 1;
+        grid-row: 3;
+        flex-direction: column;
+        overflow: visible;
+      }
+
+      .rotary-knob-container {
+        width: 70px;
+        height: 70px;
+        position: relative;
+      }
+
+      .rotary-markings {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .rotary-mark {
+        position: absolute;
+        font-size: 9px;
+        color: #666;
+        font-weight: bold;
+        transition: color 0.3s ease;
+        transform: translate(-50%, -50%);
+      }
+
+      .rotary-knob {
+        width: 44px;
+        height: 44px;
+        background: radial-gradient(circle at 40% 35%, #555, #2a2a2a 60%, #1a1a1a);
+        border: 3px solid #333;
+        border-radius: 50%;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(30deg);
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.6), inset 0 1px 2px rgba(255,255,255,0.1);
+        transition: transform 0.2s ease;
+      }
+
+      .rotary-pointer {
+        position: absolute;
+        top: 4px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 14px;
+        background: #ddd;
+        border-radius: 1px;
+        box-shadow: 0 0 3px rgba(255,255,255,0.3);
+      }
+
+      .knife-switch-container {
+        width: 120px;
+        height: 200px;
+        background: #151718;
+        border: 4px solid #000;
+        border-radius: 6px;
+        position: relative;
+        cursor: pointer;
+        box-shadow: inset 0 0 20px rgba(0,0,0,0.9), 0 4px 10px rgba(0,0,0,0.6);
+        perspective: 1000px;
+      }
+
+      /* Contact clips at the top where blades seat when OFF */
+      .knife-contact-left,
+      .knife-contact-right {
+        position: absolute;
+        top: 14px;
+        width: 20px;
+        height: 24px;
+        background: linear-gradient(to bottom, #444, #2a2a2a);
+        border: 2px solid #1a1a1a;
+        border-radius: 2px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
+      }
+
+      .knife-contact-left {
+        left: 17px;
+      }
+
+      .knife-contact-right {
+        right: 17px;
+      }
+
+      /* Hinge blocks at the bottom where the assembly pivots */
+      .knife-hinge-left,
+      .knife-hinge-right {
+        position: absolute;
+        bottom: 14px;
+        width: 24px;
+        height: 18px;
+        background: linear-gradient(to bottom, #3a3a3a, #222);
+        border: 2px solid #111;
+        border-radius: 2px 2px 3px 3px;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
+      }
+
+      .knife-hinge-left {
+        left: 15px;
+      }
+
+      .knife-hinge-right {
+        right: 15px;
+      }
+
+      .knife-assembly {
+        position: absolute;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%) rotateX(40deg);
+        width: 80px;
+        height: 140px;
+        transform-origin: center bottom;
+        transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        transform-style: preserve-3d;
+      }
+
+      /* Red cross-bar handle at top of assembly */
+      .knife-crossbar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 18px;
+        background: linear-gradient(to bottom, #cc1111, #8b0000, #660000);
+        border: 2px solid #440000;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,100,100,0.3);
+      }
+
+      /* Two parallel brass blades */
+      .knife-blade-left,
+      .knife-blade-right {
+        position: absolute;
+        top: 16px;
+        width: 14px;
+        bottom: 0;
+        background: linear-gradient(to right, #8a7030, #e6a632, #c89428, #8a7030);
+        border: 2px solid #5c4010;
+        border-radius: 0 0 3px 3px;
+        box-shadow: 1px 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,150,0.3);
+      }
+
+      .knife-blade-left {
+        left: 6px;
+      }
+
+      .knife-blade-right {
+        right: 6px;
+      }
+
+      /* ON state: assembly swings toward the user */
+      .knife-switch-container.thrown .knife-assembly {
+        transform: translateX(-50%) rotateX(-120deg);
+      }
+
+      /* Other indicator LEDs (toggles etc.) */
+      .indicator-led {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #300;
+        margin-top: 10px;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8);
+      }
+
+      /* 2. Toggles (Top Center Row) */
+      .toggle-module {
+        grid-column: 2;
+        grid-row: 1;
+        padding-top: 15px; /* Room for title */
+      }
+
+      .toggle-bank {
+        display: flex;
+        gap: 15px;
+        align-items: flex-start;
+      }
+
+      .toggle-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .toggle-wrapper .indicator-led {
+        margin-top: 0;
+      }
+
+      .toggle-icon {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        opacity: 0.9;
+        filter: saturate(0.9) contrast(1.05);
+        box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+      }
+
+      .toggle-switch {
+        width: 22px;
+        height: 40px;
+        background: #111;
+        border-radius: 4px;
+        position: relative;
+        cursor: pointer;
+        border: 2px solid #444;
+      }
+
+      .toggle-bat {
+        width: 7px;
+        height: 20px;
+        background: linear-gradient(to right, #777, #ddd, #777);
+        position: absolute;
+        left: 6px;
+        top: 3px;
+        border-radius: 2px;
+        transition: top 0.1s ease;
+      }
+
+      .toggle-switch.on .toggle-bat {
+        top: 15px;
+        background: linear-gradient(to right, #555, #bbb, #555);
+      }
+
+      .toggle-switch.on + .indicator-led {
+        background-color: var(--glow-green);
+        box-shadow:
+          0 0 8px var(--glow-green),
+          inset 0 1px 1px #fff;
+      }
+
+      /* 3. VU Meters (Right Slim Column, top/mid) */
+      .meters-module {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        flex-direction: column;
+        gap: 10px;
+        justify-content: flex-start;
+        padding-top: 20px;
+      }
+
+      .pulse-core-bezel {
+        width: 110px;
+        height: 110px;
+        border-radius: 50%;
+        background: linear-gradient(145deg, #555, #2f2f2f);
+        border: 5px solid #1f1f1f;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.1);
+        margin-bottom: 3rem;
+      }
+
+      .pulse-core {
+        width: 76px;
+        height: 76px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, #7a66ff, #2b1f7d 55%, #130f33 100%);
+        box-shadow: 0 0 12px rgba(100, 90, 255, 0.45), inset 0 0 10px rgba(180, 160, 255, 0.35);
+        animation: aetheric-pulse var(--pulse-duration, 2s) ease-in-out infinite;
+        animation-play-state: paused;
+        opacity: 0.45;
+      }
+
+      .pulse-core.active {
+        animation-play-state: running;
+        opacity: 1;
+      }
+
+      @keyframes aetheric-pulse {
+        0%, 100% {
+          transform: scale(1);
+          box-shadow: 0 0 8px rgba(90, 80, 255, 0.35), inset 0 0 8px rgba(180, 160, 255, 0.25);
+        }
+        50% {
+          transform: scale(1.07);
+          box-shadow: 0 0 22px rgba(120, 105, 255, 0.8), 0 0 36px rgba(90, 80, 255, 0.4), inset 0 0 12px rgba(220, 210, 255, 0.45);
+        }
+      }
+
+      .signal-bars {
+        width: 140px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .signal-bar {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 3px;
+      }
+
+      .signal-segment {
+        height: 8px;
+        border-radius: 2px;
+        opacity: 0.25;
+        transition: opacity 0.12s ease, box-shadow 0.12s ease;
+      }
+
+      .signal-segment.zone-green {
+        background: #2e6b2e;
+      }
+
+      .signal-segment.zone-yellow {
+        background: #8a7b2a;
+      }
+
+      .signal-segment.zone-red {
+        background: #8a2a2a;
+      }
+
+      .signal-segment.on.zone-green {
+        opacity: 1;
+        background: #33ff66;
+        box-shadow: 0 0 6px rgba(51, 255, 102, 0.7);
+      }
+
+      .signal-segment.on.zone-yellow {
+        opacity: 1;
+        background: #ffe066;
+        box-shadow: 0 0 6px rgba(255, 224, 102, 0.65);
+      }
+
+      .signal-segment.on.zone-red {
+        opacity: 1;
+        background: #ff5a5a;
+        box-shadow: 0 0 7px rgba(255, 90, 90, 0.75);
+      }
+
+      .diag-greebles {
+        width: 140px;
+        margin-top: 4px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        align-items: start;
+        margin-bottom: 20px;
+      }
+
+      .diag-greeble-panel {
+        padding: 0;
+      }
+
+      .diag-greeble-title {
+        font-size: 6px;
+        color: #7b868f;
+        margin-bottom: 4px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        text-align: center;
+      }
+
+      .waterfall-matrix {
+        width: 100%;
+        grid-column: 1 / span 2;
+      }
+
+      .wf-grid {
+        background: linear-gradient(145deg, #191d20, #111416);
+        border: 2px solid #2a3034;
+        border-radius: 4px;
+        padding: 5px;
+        box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.6);
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 2px;
+      }
+
+      .wf-cell {
+        width: 100%;
+        height: 8px;
+        border-radius: 1px;
+        background: #1a1f24;
+        border: 1px solid #0f1215;
+        opacity: 0.25;
+        transition: opacity 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+      }
+
+      .wf-cell.on {
+        background: #53ffa1;
+        opacity: 1;
+        box-shadow: 0 0 4px rgba(83, 255, 161, 0.75);
+      }
+
+      .wf-cell.glitch {
+        background: #c8fff4;
+        opacity: 1;
+        box-shadow: 0 0 6px rgba(200, 255, 244, 0.85);
+      }
+
+      .wf-cell.blue {
+        background: #4aa9ff;
+        opacity: 1;
+        box-shadow: 0 0 6px rgba(74, 169, 255, 0.9);
+      }
+
+      .radar-array {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 112px;
+      }
+
+      .radar-array > div {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .radar-screen {
+        position: relative;
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        background:
+          radial-gradient(circle at center, rgba(30, 80, 45, 0.65) 0%, rgba(10, 30, 17, 0.95) 75%),
+          repeating-radial-gradient(circle, transparent 0 7px, rgba(40, 100, 60, 0.16) 8px 9px);
+        border: 3px solid #2d3a2d;
+        overflow: hidden;
+        box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.7), 0 0 4px rgba(0, 255, 120, 0.2);
+      }
+
+      .radar-sweep {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 2px;
+        height: 50%;
+        transform-origin: 50% 0%;
+        transform: translateX(-50%) rotate(0deg);
+        background: linear-gradient(to top, rgba(80, 255, 120, 0.95), rgba(80, 255, 120, 0.05));
+        animation: radar-spin 2.1s linear infinite;
+        animation-play-state: paused;
+      }
+
+      .radar-sweep.active {
+        animation-play-state: running;
+      }
+
+      @keyframes radar-spin {
+        from { transform: translateX(-50%) rotate(0deg); }
+        to { transform: translateX(-50%) rotate(360deg); }
+      }
+
+      .radar-blip {
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #8cffb5;
+        box-shadow: 0 0 6px rgba(140, 255, 181, 0.9);
+        animation: radar-blip-fade 1.4s ease-out forwards;
+      }
+
+      @keyframes radar-blip-fade {
+        0% { opacity: 0; transform: scale(0.4); }
+        20% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1.6); }
+      }
+
+      .vacuum-tube {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 112px;
+        padding: 4px 0;
+      }
+
+      .vacuum-tube > div {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .tube-body {
+        width: 24px;
+        height: 90px;
+        border-radius: 12px;
+        border: 2px solid #4a4340;
+        background: linear-gradient(180deg, rgba(70, 60, 54, 0.65), rgba(30, 25, 22, 0.85));
+        position: relative;
+        overflow: hidden;
+        box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.8);
+      }
+
+      .tube-filament {
+        position: absolute;
+        left: 50%;
+        bottom: 8px;
+        transform: translateX(-50%);
+        width: 7px;
+        height: 42px;
+        border-radius: 4px;
+        background: linear-gradient(to top, rgba(255, 80, 40, 0.95), rgba(255, 170, 80, 0.45));
+        opacity: 0.12;
+        filter: brightness(0.6) blur(0.2px);
+        transition: opacity 0.2s ease, filter 0.2s ease;
+      }
+
+      .tube-cap {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 14px;
+        height: 4px;
+        background: #554f4b;
+        border-radius: 2px;
+      }
+
+      .tube-cap.top { top: 3px; }
+      .tube-cap.bottom { bottom: 3px; }
+
+      .vu-meter {
+        width: 140px; /* Larger */
+        height: 90px;
+        background: #222; /* Dark initially */
+        border: 4px solid #1a1a1a;
+        border-bottom: 8px solid #333; /* Thick metallic base */
+        border-radius: 5px;
+        position: relative;
+        overflow: hidden;
+        box-shadow:
+          0 4px 8px rgba(0, 0, 0, 0.5),
+          inset 0 0 15px rgba(0, 0, 0, 0.2);
+        margin-bottom: 20px;
+        transition: background 0.5s ease;
+      }
+
+      .vu-meter::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.2) 0%,
+          rgba(255, 255, 255, 0) 50%
+        );
+        pointer-events: none;
+      }
+
+      .vu-dial {
+        position: absolute;
+        bottom: 5px;
+        left: 50%;
+        width: 2px;
+        height: 75px; /* Longer needle */
+        background: #cc0000;
+        transform: rotate(-45deg); /* Dead position */
+        filter: brightness(0.3);
+        transform-origin: bottom center;
+        transition: transform 0.8s cubic-bezier(0.18, 0.89, 0.32, 1.28), filter 0.5s ease;
+        z-index: 2;
+      }
+
+      .vu-scale {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-image: linear-gradient(to right, black 70%, red 30%) 1;
+      }
+
+      .vu-scale::before {
+        content: '';
+        position: absolute;
+        top: 5px; left: 10%; width: 80%; height: 10px;
+        background-image: linear-gradient(to right, #333 2px, transparent 2px);
+        background-size: 10% 100%;
+      }
+
+      /* 4. Patch Bay (Bottom Center Row) */
+      .patch-bay-module {
+        grid-column: 2;
+        grid-row: 3;
+        padding: 5px 0;
+      }
+
+      .patch-bay {
+        display: flex;
+        gap: 10px;
+      }
+
+      .jack {
+        width: 28px;
+        height: 28px;
+        background: radial-gradient(circle, #111 40%, #555 50%, #222 100%);
+        border: 2px solid #333;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+
+      /* 5. Big Red Button (Bottom Right Corner) */
+      .purge-module {
+        grid-column: 3;
+        grid-row: 3;
+        background: linear-gradient(135deg, #331111 0%, #1a0505 100%);
+      }
+
+      .big-button-housing {
+        width: 60px;
+        height: 60px;
+        background: #111;
+        border: 3px dashed #ffcc00;
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+      }
+
+      .big-button {
+        width: 45px;
+        height: 45px;
+        background: radial-gradient(circle, #441111 0%, #220000 100%);
+        border: 3px solid #330000;
+        box-shadow: 0 4px 0 #110000;
+        filter: brightness(0.5); /* Dull when off */
+        border-radius: 50%;
+        transition:
+          transform 0.05s,
+          box-shadow 0.05s,
+          filter 0.3s ease,
+          background 0.3s ease;
+      }
+
+      .big-button:active {
+        transform: translateY(3px);
+        box-shadow:
+          0 1px 0 #550000,
+          0 2px 5px rgba(0, 0, 0, 0.6);
+      }
+
+      /* SVG Overlay for drawing cables */
+      svg#cable-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 100; /* Must be on top of the iframe */
+      }
+
+      .patch-cable {
+        stroke: #3388ff;
+        stroke-width: 5px;
+        stroke-linecap: round;
+        fill: none;
+        filter: drop-shadow(1px 2px 3px rgba(0, 0, 0, 0.6));
+      }
+
+      /* Compact Diagnostic Display */
+      .diagnostic-readout {
+        position: absolute;
+        bottom: 5px;
+        left: 5px;
+        font-size: 8px;
+        color: #141; /* Dim when off */
+        text-shadow: none;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <svg id="cable-layer"></svg>
+
+    <div id="control-panel">
+      <div class="module master-power-module">
+        <div class="module-title">Main Grid</div>
+        <div class="pulse-core-bezel">
+          <div class="pulse-core" id="pulse-core"></div>
+        </div>
+        <div class="knife-switch-container" id="main-knife">
+          <div class="knife-contact-left"></div>
+          <div class="knife-contact-right"></div>
+          <div class="knife-assembly">
+            <div class="knife-crossbar"></div>
+            <div class="knife-blade-left"></div>
+            <div class="knife-blade-right"></div>
+          </div>
+          <div class="knife-hinge-left"></div>
+          <div class="knife-hinge-right"></div>
+        </div>
+      </div>
+
+      <div class="module toggle-module">
+        <div class="module-title">Matrix Interrupters</div>
+        <div class="toggle-bank">
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="1">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=keeptradecut.com&sz=32" alt="KTC League" title="KTC League" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="2">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=keeptradecut.com&sz=32" alt="KTC Trade" title="KTC Trade" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="3">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=nfl.com&sz=32" alt="NFL" title="NFL" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="4">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=espn.com&sz=32" alt="ESPN Fantasy" title="ESPN Fantasy" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="5">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=thefantasyfootballers.com&sz=32" alt="Fantasy Footballers" title="Fantasy Footballers" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="6">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=fantasypros.com&sz=32" alt="FantasyPros" title="FantasyPros" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="7">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=fantasypoints.com&sz=32" alt="FantasyPoints" title="FantasyPoints" />
+          </div>
+          <div class="toggle-wrapper">
+            <div class="toggle-switch" data-id="8">
+              <div class="toggle-bat"></div>
+            </div>
+            <div class="indicator-led"></div>
+            <img class="toggle-icon" src="https://www.google.com/s2/favicons?domain=rotoballer.com&sz=32" alt="RotoBaller" title="RotoBaller" />
+          </div>
+        </div>
+      </div>
+
+      <div class="module meters-module">
+        <div class="module-title">Diagnostics</div>
+
+        <div style="font-size: 8px; color: #888; margin-bottom: 2px; margin-top: 2rem">
+          ANOMALY COUNT
+        </div>
+        <div class="bug-counter-display">
+          <span id="bug-count-num">0000</span>
+        </div>
+
+        <div style="font-size: 8px; color: #888; margin-bottom: 2px">
+          SIGNAL ARRAY
+        </div>
+        <div class="signal-bars" id="signal-bars" style="margin-bottom: 20px;">
+          <div class="signal-bar" id="signal-bar-1">
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-yellow"></div>
+            <div class="signal-segment zone-yellow"></div>
+            <div class="signal-segment zone-red"></div>
+            <div class="signal-segment zone-red"></div>
+          </div>
+          <div class="signal-bar" id="signal-bar-2">
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-green"></div>
+            <div class="signal-segment zone-yellow"></div>
+            <div class="signal-segment zone-yellow"></div>
+            <div class="signal-segment zone-red"></div>
+            <div class="signal-segment zone-red"></div>
+          </div>
+        </div>
+
+        <div style="font-size: 8px; color: #888; margin-bottom: 2px">
+          CORE STRESS
+        </div>
+        <div class="vu-meter">
+          <div class="vu-scale"></div>
+          <div class="vu-dial" id="meter-needle-1"></div>
+        </div>
+
+        <div style="font-size: 8px; color: #888; margin-bottom: 2px">
+          FLUX CAPACITANCE
+        </div>
+        <div class="vu-meter">
+          <div class="vu-scale"></div>
+          <div class="vu-dial" id="meter-needle-2"></div>
+        </div>
+
+        <div class="diag-greebles">
+          <div class="diag-greeble-panel vacuum-tube">
+            <div>
+              <div style="font-size: 8px; color: #888; margin-bottom: 10px">VACUUM TUBE</div>
+              <div class="tube-body">
+                <div class="tube-cap top"></div>
+                <div class="tube-filament" id="tube-filament"></div>
+                <div class="tube-cap bottom"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="diag-greeble-panel radar-array">
+            <div>
+              <div style="font-size: 8px; color: #888; margin-bottom: 10px">RADAR</div>
+              <div class="radar-screen" id="radar-screen">
+                <div class="radar-sweep" id="radar-sweep"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="diag-greebles">
+          <div class="diag-greeble-panel waterfall-matrix">
+            <div style="font-size: 8px; color: #888; margin-bottom: 10px; text-align: center;">WATERFALL</div>
+            <div class="wf-grid" id="waterfall-grid"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="module central-viewscreen-module">
+        <div class="module-title">Main Viewscreen</div>
+        <div class="viewscreen-bezel">
+          <iframe
+            id="viewscreen-iframe"
+            src="about:blank"
+            title="Greeble Viewscreen"
+          ></iframe>
+          <div id="iframe-status">CONSOLE IDLE...</div>
+        </div>
+        <div class="diagnostic-readout" id="status-display">
+          LOG: WAITING FOR OPERATOR INPUT...
+        </div>
+      </div>
+
+      <div class="module rotary-module">
+        <div class="module-title">Channel</div>
+        <div class="rotary-knob-container">
+          <div class="rotary-markings" id="rotary-markings"></div>
+          <div class="rotary-knob" id="rotary-knob">
+            <div class="rotary-pointer"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="module patch-bay-module">
+        <div class="module-title">Patch Bay</div>
+        <div class="patch-bay">
+          <div class="jack" data-port="1"></div>
+          <div class="jack" data-port="2"></div>
+          <div class="jack" data-port="3"></div>
+          <div class="jack" data-port="4"></div>
+          <div class="jack" data-port="5"></div>
+          <div class="jack" data-port="6"></div>
+        </div>
+      </div>
+
+      <div class="module purge-module">
+        <div class="module-title" style="color: #ff5555">Purge</div>
+        <div class="big-button-housing" id="panic-button">
+          <div class="big-button"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ZzFX - Tiny Audio Synthesizer
+      const zzfxContext = new AudioContext();
+      const zzfx = (volume=1, duration=0.3, frequency=220, attack=0.01, decay=0.05,
+                     sustain=0.1, wave=0, freqSlide=0, noise=0) => {
+        const sampleRate = 44100;
+        const totalSamples = Math.floor(sampleRate * duration);
+        const buf = zzfxContext.createBuffer(1, totalSamples, sampleRate);
+        const data = buf.getChannelData(0);
+        const attackSamples = Math.floor(attack * sampleRate);
+        const decaySamples = Math.floor(decay * sampleRate);
+        const sustainEnd = Math.floor((attack + sustain) * sampleRate);
+        let freq = frequency;
+        let phase = 0;
+        for (let i = 0; i < totalSamples; i++) {
+          // Envelope: attack -> sustain -> decay
+          let env;
+          if (i < attackSamples) {
+            env = i / attackSamples;
+          } else if (i < sustainEnd) {
+            env = 1;
+          } else {
+            env = Math.max(0, 1 - (i - sustainEnd) / (decaySamples * sampleRate));
+          }
+          // Frequency slide
+          freq += freqSlide * (sampleRate > 0 ? 1 / sampleRate : 0);
+          // Oscillator
+          let sample;
+          const t = phase;
+          if (wave === 0) { // Sine
+            sample = Math.sin(2 * Math.PI * t);
+          } else if (wave === 1) { // Square
+            sample = (t % 1) < 0.5 ? 1 : -1;
+          } else { // Sawtooth
+            sample = 2 * (t % 1) - 1;
+          }
+          // Add noise
+          if (noise > 0) sample += (Math.random() * 2 - 1) * noise;
+          data[i] = sample * env * volume;
+          phase += freq / sampleRate;
+        }
+        const src = zzfxContext.createBufferSource();
+        src.buffer = buf;
+        src.connect(zzfxContext.destination);
+        src.start();
+      };
+
+      // PRESET SOUNDS
+      const SOUNDS = {
+        switch: [0.05, 0.3, 220, 0.02, 0.05, 0.1, 1, 2, 0.01],
+        button: [0.1, 0.08, 100, 0.02, 0.03, 0.08, 2, 0.5, 0.01],
+        plug: [0.05, 0.1, 500, 0.01, 0.02, 0.15, 1, 1.2, 0.01],
+        powerUp: [0.3, 0.6, 70, 0.8, 0.3, 1.5, 0, 0, 0.05],
+        knobClick: [0.3, 0.05, 200, 0.02, 0.02, 0.02, 4, 0, 0.1]
+      };
+
+      // --- DATA HUB ---
+      const alerts = [
+        "⚠️ QUANTUM FLUCTUATION DETECTED IN SECTOR 7!",
+        "🤖 The local AI engine refuses to process your request. Try shifting coordinates.",
+        "☕ Error 418: I'm a teapot. Please supply coffee to the master console.",
+        "📡 Intercepted transmission: 'The coordinates are set. Launch when ready.'",
+        "💾 Recalibrating flux capacitors... Please wait 400 years.",
+      ];
+
+      const sites = [
+        "https://sleeper.com/leagues/1360419503334260736/league",
+        "https://sleeper.com/leagues/1312211465414901760/league",
+        "https://sleeper.com/leagues/1333674514399117312/league",
+      ];
+
+      const SITE_MODE_STORAGE_KEY = "greebleSiteModes";
+
+      function loadLearnedSiteModes() {
+        try {
+          return JSON.parse(localStorage.getItem(SITE_MODE_STORAGE_KEY) || "{}");
+        } catch {
+          return {};
+        }
+      }
+
+      let learnedSiteModes = loadLearnedSiteModes();
+
+      function getLearnedSiteMode(url) {
+        return learnedSiteModes[url] || "auto";
+      }
+
+      function rememberSiteMode(url, mode) {
+        learnedSiteModes[url] = mode;
+        try {
+          localStorage.setItem(SITE_MODE_STORAGE_KEY, JSON.stringify(learnedSiteModes));
+        } catch {
+          // Ignore storage failures and keep the session working.
+        }
+      }
+
+      function getDisplayHost(url) {
+        try {
+          return new URL(url).hostname.replace(/^www\./, "");
+        } catch {
+          return url;
+        }
+      }
+
+      let bugCount = 0; // Initialize the counter
+      let anomalyChecks = 0;
+
+      function addBug() {
+        bugCount++;
+        document.getElementById("bug-count-num").innerText = bugCount
+          .toString()
+          .padStart(4, "0");
+
+        updatePulseSpeed();
+        updateTubeGlow();
+
+        // Visual flare: make the counter blink red when it hits a bug
+        const counterBox = document.querySelector(".bug-counter-display");
+        counterBox.style.color = "#ff0000";
+        setTimeout(() => {
+          counterBox.style.color = "#ff6600";
+        }, 200);
+      }
+
+      // Rotary knob state
+      let homepageIndex = 1;
+      const knobCount = Math.min(sites.length, 8);
+      // Spread positions evenly across a 30°–150° arc (clock-face right side)
+      const knobAngles = {};
+      for (let i = 1; i <= knobCount; i++) {
+        knobAngles[i] = knobCount === 1 ? 90 : 30 + (120 * (i - 1)) / (knobCount - 1);
+      }
+      // Generate number markings dynamically
+      const markingsEl = document.getElementById("rotary-markings");
+      const cx = 35, cy = 35, r = 32;
+      for (let i = 1; i <= knobCount; i++) {
+        const angleDeg = knobAngles[i];
+        const angleRad = angleDeg * Math.PI / 180;
+        const x = cx + r * Math.sin(angleRad);
+        const y = cy - r * Math.cos(angleRad);
+        const mark = document.createElement("span");
+        mark.className = "rotary-mark";
+        mark.textContent = i;
+        mark.style.left = x + "px";
+        mark.style.top = y + "px";
+        markingsEl.appendChild(mark);
+      }
+      // Set initial knob position
+      document.getElementById("rotary-knob").style.transform = `translate(-50%, -50%) rotate(${knobAngles[1]}deg)`;
+
+      function triggerRandomEvent(actionName) {
+        zzfx(...SOUNDS.button);
+        updateDisplay(`EXEC: ${actionName}`);
+        bounceNeedles();
+
+        if (Math.random() > 0.3) {
+          const randomSite = sites[Math.floor(Math.random() * sites.length)];
+          loadViewscreen(randomSite);
+        } else {
+          addBug();
+
+          // Show alert text on the viewscreen instead of a popup
+          const msg = alerts[Math.floor(Math.random() * alerts.length)];
+          iframe.onload = null;
+          iframe.src = "about:blank";
+          iframe.style.opacity = "0";
+          iframeStatus.innerText = msg;
+          iframeStatus.style.opacity = "1";
+          iframeStatus.style.display = "block";
+        }
+      }
+
+      // ====== THE VIEWSCREEN INTEGRATION LOGIC ======
+      const iframe = document.getElementById("viewscreen-iframe");
+      const iframeStatus = document.getElementById("iframe-status");
+
+      function showExternalLaunch(url, opener) {
+        iframe.onload = null;
+        iframe.src = "about:blank";
+        iframe.style.opacity = "0";
+        iframeStatus.innerText = `OPENING EXTERNAL RESOURCE\n${getDisplayHost(url)}`;
+        iframeStatus.style.opacity = "1";
+        iframeStatus.style.display = "block";
+
+        const popup = opener();
+        iframeStatus.innerText = popup
+          ? `OPENED IN NEW TAB\n${getDisplayHost(url)}`
+          : `POPUP BLOCKED\nAllow popups for this dashboard`;
+      }
+
+      function loadViewscreen(url) {
+        updateDisplay(`NAVIGATING TO: ${url}`);
+
+        if (getLearnedSiteMode(url) === "external") {
+          showExternalLaunch(url, () => window.open(url, "_blank"));
+          return;
+        }
+
+        // 1. Show 'Loading' status
+        iframeStatus.innerText = "RETRIEVING DATA...";
+        iframeStatus.style.opacity = "1";
+        iframeStatus.style.display = "block";
+
+        // 2. Set the iframe source and make it visible
+        const loadStart = Date.now();
+        let handled = false;
+        iframe.src = url;
+        iframe.style.opacity = "1";
+
+        // 3. Detect load — use timing to catch blocked sites
+        iframe.onload = function () {
+          if (handled) return;
+          const elapsed = Date.now() - loadStart;
+
+          try {
+            // If we CAN read location, iframe is same-origin (still about:blank) = blocked
+            iframe.contentWindow.location.href;
+            handleBlocked();
+            return;
+          } catch(e) {
+            // Cross-origin: could be the real page OR chrome-error://
+            // Chrome's error page loads in <300ms; real sites take longer
+            if (elapsed < 400) {
+              handleBlocked();
+            } else {
+              handleSuccess();
+            }
+          }
+        };
+
+        function handleSuccess() {
+          if (handled) return;
+          handled = true;
+          rememberSiteMode(url, "iframe");
+          iframeStatus.style.opacity = "0";
+          setTimeout(() => { iframeStatus.style.display = "none"; }, 500);
+        }
+
+        function handleBlocked() {
+          if (handled) return;
+          handled = true;
+          rememberSiteMode(url, "external");
+          showExternalLaunch(url, () => window.open(url, "_blank"));
+        }
+
+        // Fail-safe
+        setTimeout(() => {
+          if (!handled) handleSuccess();
+        }, 8000);
+      }
+
+      function updateDisplay(text) {
+        document.getElementById("status-display").innerText =
+          `LOG: ${text.toUpperCase()}`;
+      }
+
+      // ====== INTERACTIVE DRIVERS ======
+
+      // 1. Knife Switch
+      const knife = document.getElementById("main-knife");
+      const bugCounter = document.querySelector('.bug-counter-display');
+      const purgeBtn = document.querySelector('.big-button');
+      const pulseCore = document.getElementById("pulse-core");
+      const waterfallGrid = document.getElementById("waterfall-grid");
+      const radarScreen = document.getElementById("radar-screen");
+      const radarSweep = document.getElementById("radar-sweep");
+      const tubeFilament = document.getElementById("tube-filament");
+      const signalBars = [
+        Array.from(document.querySelectorAll("#signal-bar-1 .signal-segment")),
+        Array.from(document.querySelectorAll("#signal-bar-2 .signal-segment")),
+      ];
+      const WF_ROWS = 5;
+      const WF_COLS = 10;
+      const waterfallCells = [];
+      for (let r = 0; r < WF_ROWS; r++) {
+        for (let c = 0; c < WF_COLS; c++) {
+          const cell = document.createElement("div");
+          cell.className = "wf-cell";
+          cell.dataset.row = String(r);
+          waterfallGrid.appendChild(cell);
+          waterfallCells.push(cell);
+        }
+      }
+      const needles = [
+        document.getElementById("meter-needle-1"),
+        document.getElementById("meter-needle-2"),
+      ];
+      let waterfallRow = -1;
+      let radarBlipTimeoutId = null;
+
+      function updatePulseSpeed() {
+        const duration = Math.max(0.2, 2 - bugCount * 0.1);
+        pulseCore.style.setProperty("--pulse-duration", `${duration}s`);
+      }
+
+      function updateTubeGlow() {
+        const powered = knife.classList.contains("thrown");
+        if (!powered) {
+          tubeFilament.style.opacity = "0.12";
+          tubeFilament.style.filter = "brightness(0.6) blur(0.2px)";
+          return;
+        }
+        const intensity = Math.min(1, 0.22 + bugCount * 0.08);
+        const brightness = 0.8 + intensity * 1.8;
+        tubeFilament.style.opacity = `${0.2 + intensity * 0.75}`;
+        tubeFilament.style.filter = `brightness(${brightness}) blur(${0.3 + intensity * 0.5}px)`;
+      }
+
+      function setSignalBarsLevel(levels) {
+        signalBars.forEach((barSegments, barIndex) => {
+          const level = levels[barIndex];
+          barSegments.forEach((seg, idx) => {
+            seg.classList.toggle("on", idx < level);
+          });
+        });
+      }
+
+      function clearSignalBars() {
+        setSignalBarsLevel([0, 0]);
+      }
+
+      function animateSignalBars() {
+        if (!knife.classList.contains("thrown")) {
+          clearSignalBars();
+          return;
+        }
+        const level1 = Math.floor(Math.random() * 10) + 1;
+        const level2 = Math.floor(Math.random() * 10) + 1;
+        setSignalBarsLevel([level1, level2]);
+      }
+
+      function animateWaterfallMatrix() {
+        if (!knife.classList.contains("thrown")) {
+          waterfallCells.forEach((cell) => cell.classList.remove("on", "glitch", "blue"));
+          return;
+        }
+
+        waterfallRow = (waterfallRow + 1) % WF_ROWS;
+        const blueIndex = Math.floor(Math.random() * waterfallCells.length);
+        waterfallCells.forEach((cell) => {
+          const row = Number(cell.dataset.row);
+          cell.classList.toggle("on", row === waterfallRow);
+          cell.classList.toggle("glitch", Math.random() < 0.1);
+          cell.classList.toggle("blue", waterfallCells[blueIndex] === cell);
+        });
+      }
+
+      function spawnRadarBlip() {
+        if (!knife.classList.contains("thrown")) return;
+        const radius = 26;
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.sqrt(Math.random()) * radius;
+        const x = Math.cos(angle) * distance;
+        const y = Math.sin(angle) * distance;
+
+        const blip = document.createElement("div");
+        blip.className = "radar-blip";
+        blip.style.left = `${29 + x - 2}px`;
+        blip.style.top = `${29 + y - 2}px`;
+        radarScreen.appendChild(blip);
+        setTimeout(() => blip.remove(), 1500);
+      }
+
+      function scheduleRadarBlip() {
+        clearTimeout(radarBlipTimeoutId);
+        const nextMs = 3000 + Math.floor(Math.random() * 2001);
+        radarBlipTimeoutId = setTimeout(() => {
+          spawnRadarBlip();
+          scheduleRadarBlip();
+        }, nextMs);
+      }
+
+      function stopRadarBlips() {
+        clearTimeout(radarBlipTimeoutId);
+        radarBlipTimeoutId = null;
+        radarScreen.querySelectorAll(".radar-blip").forEach((b) => b.remove());
+      }
+
+      updatePulseSpeed();
+      clearSignalBars();
+      updateTubeGlow();
+
+      knife.addEventListener("click", () => {
+        // Unlock audio for the browser session
+        if (zzfxContext.state === 'suspended') zzfxContext.resume();
+
+        knife.classList.toggle("thrown");
+        const isOn = knife.classList.contains("thrown");
+        if (isOn) {
+          zzfx(...SOUNDS.powerUp);
+        } else {
+          zzfx(...SOUNDS.switch);
+        }
+
+        if (isOn) {
+          // POWER UP SEQUENCE
+          updateDisplay("SYSTEM BOOTING...");
+          
+          // Counter reveal
+          bugCounter.style.color = "#ff6600";
+          bugCounter.style.textShadow = "0 0 8px #ff6600, 0 0 2px #ffccaa";
+          bugCounter.style.border = "3px solid #3d1c00";
+          updateTubeGlow();
+          
+          // Purge button wake
+          purgeBtn.style.filter = "brightness(1)";
+          purgeBtn.style.background = "radial-gradient(circle, #ff4d4d 0%, #990000 100%)";
+          
+          // Viewscreen wake
+          iframe.style.opacity = "1";
+          iframeStatus.style.opacity = "1";
+          iframeStatus.style.display = "block";
+          
+          // Needles wake
+          needles.forEach(n => {
+            n.style.filter = "brightness(1)";
+            n.style.transform = "rotate(0deg)";
+          });
+          animateSignalBars();
+          animateWaterfallMatrix();
+          radarSweep.classList.add("active");
+          scheduleRadarBlip();
+          pulseCore.classList.add("active");
+
+          // Titles and Log wake
+          document.querySelectorAll(".module-title").forEach(t => t.style.color = "#8a959e");
+          document.getElementById("status-display").style.color = "#33ff33";
+          document.getElementById("status-display").style.textShadow = "0 0 2px #33ff33";
+
+          setTimeout(() => {
+            loadViewscreen(sites[homepageIndex - 1]);
+            updateDisplay("Initial Power Surge");
+            bounceNeedles();
+          }, 1000);
+        } else {
+          // POWER DOWN SEQUENCE
+          updateDisplay("MAIN POWER OFFLINE.");
+          
+          // Kill UI elements
+          bugCounter.style.color = "transparent";
+          bugCounter.style.textShadow = "none";
+          bugCounter.style.border = "3px solid #1a1a1a";
+          anomalyChecks = 0;
+          
+          purgeBtn.style.filter = "brightness(0.5)";
+          purgeBtn.style.background = "radial-gradient(circle, #441111 0%, #220000 100%)";
+          
+          iframe.src = "about:blank"; 
+          iframe.style.opacity = "0";
+          iframeStatus.style.opacity = "0";
+          iframeStatus.innerText = "CONSOLE IDLE...";
+          
+          needles.forEach(n => {
+            n.style.transform = "rotate(-45deg)";
+            n.style.filter = "brightness(0.3)";
+          });
+          clearSignalBars();
+          animateWaterfallMatrix();
+          radarSweep.classList.remove("active");
+          stopRadarBlips();
+          updateTubeGlow();
+          pulseCore.classList.remove("active");
+
+          document.querySelectorAll(".module-title").forEach(t => t.style.color = "#555");
+          document.getElementById("status-display").style.color = "#141";
+          document.getElementById("status-display").style.textShadow = "none";
+
+          // Reset Matrix Interrupters
+          document.querySelectorAll(".toggle-switch").forEach(sw => sw.classList.remove("on"));
+
+          // Reset Patch Bay cables
+          svgLayer.querySelectorAll(".patch-cable").forEach(c => c.remove());
+        }
+      });
+
+      // 2. Toggles
+      function getSelectedHomepageUrl() {
+        return sites[homepageIndex - 1] || "";
+      }
+
+      function extractSleeperLeagueId(url) {
+        const m = url.match(/sleeper\.com\/leagues\/(\d+)\/league/i);
+        return m ? m[1] : null;
+      }
+
+      function getToggleTargetUrl(toggleId) {
+        if (toggleId === "1") {
+          const leagueId = extractSleeperLeagueId(getSelectedHomepageUrl());
+          if (!leagueId) return null;
+          return `https://keeptradecut.com/dynasty/power-rankings/league-overview?leagueId=${leagueId}&platform=2`;
+        }
+        if (toggleId === "2") return "https://keeptradecut.com/trade-calculator";
+        if (toggleId === "3") return "https://www.nfl.com/";
+        if (toggleId === "4") return "https://www.espn.com/fantasy/football/";
+        if (toggleId === "5") return "https://www.thefantasyfootballers.com/";
+        if (toggleId === "6") return "https://www.fantasypros.com/";
+        if (toggleId === "7") return "https://www.fantasypoints.com/#/";
+        if (toggleId === "8") return "https://www.rotoballer.com/nfl";
+        return null;
+      }
+
+      document.querySelectorAll(".toggle-switch").forEach((sw) => {
+        sw.addEventListener("click", () => {
+          if (!knife.classList.contains("thrown")) {
+            alert("⚠️ MAIN POWER REQUIRED.");
+            return;
+          }
+
+          if (zzfxContext.state === "suspended") zzfxContext.resume();
+          zzfx(...SOUNDS.button);
+
+          const targetUrl = getToggleTargetUrl(sw.dataset.id);
+          if (!targetUrl) {
+            iframe.onload = null;
+            iframe.src = "about:blank";
+            iframe.style.opacity = "0";
+            iframeStatus.innerText = "NO SLEEPER LEAGUE ID\nSelect a Sleeper league homepage first";
+            iframeStatus.style.opacity = "1";
+            iframeStatus.style.display = "block";
+            return;
+          }
+
+          document.querySelectorAll(".toggle-switch").forEach((other) => other.classList.remove("on"));
+          sw.classList.add("on");
+
+          updateDisplay(`Resource ${sw.dataset.id}`);
+          bounceNeedles();
+          loadViewscreen(targetUrl);
+        });
+      });
+
+      // 3. VU Meters
+      function bounceNeedles() {
+        if (!knife.classList.contains("thrown")) return;
+        needles.forEach((needle) => {
+          const randomAngle = Math.floor(Math.random() * 80) - 40;
+          needle.style.transform = `rotate(${randomAngle}deg)`;
+        });
+      }
+      setInterval(() => {
+        if (Math.random() > 0.7 && knife.classList.contains("thrown"))
+          bounceNeedles();
+      }, 1500);
+
+      setInterval(() => {
+        animateSignalBars();
+      }, 260);
+
+      // Timed anomaly drift: checks every 10s and ramps up chance over time.
+      setInterval(() => {
+        if (!knife.classList.contains("thrown")) return;
+
+        anomalyChecks++;
+        const ramp = anomalyChecks / 18;
+        const bugChance = Math.min(0.42, 0.02 + 0.03 * ramp + 0.12 * ramp * ramp);
+
+        if (Math.random() < bugChance) {
+          addBug();
+          if (Math.random() > 0.55) bounceNeedles();
+        }
+      }, 10000);
+
+      setInterval(() => {
+        animateWaterfallMatrix();
+      }, 190);
+
+      // 4. Emergency Button
+      document.getElementById("panic-button").addEventListener("click", () => {
+        if (!knife.classList.contains("thrown")) return;
+        zzfx(...SOUNDS.button);
+        updateDisplay("🚨 EMERGENCY PURGE 🚨");
+        bounceNeedles();
+        document.querySelectorAll(".toggle-switch").forEach((sw) => sw.classList.remove("on"));
+        loadViewscreen(sites[homepageIndex - 1]);
+      });
+
+      // 6. Rotary Knob
+      const rotaryKnob = document.getElementById("rotary-knob");
+      function updateKnobVisual() {
+        rotaryKnob.style.transform = `translate(-50%, -50%) rotate(${knobAngles[homepageIndex]}deg)`;
+      }
+      function turnKnob(delta) {
+        if (zzfxContext.state === 'suspended') zzfxContext.resume();
+        const next = homepageIndex + delta;
+        if (next < 1 || next > knobCount) return;
+        homepageIndex = next;
+        zzfx(...SOUNDS.knobClick);
+        updateKnobVisual();
+        if (knife.classList.contains("thrown")) {
+          loadViewscreen(sites[homepageIndex - 1]);
+          updateDisplay(`Channel ${homepageIndex}`);
+          bounceNeedles();
+        }
+      }
+      rotaryKnob.addEventListener("click", () => turnKnob(1));
+      rotaryKnob.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        turnKnob(-1);
+      });
+
+      // 5. Drag & Drop Patch Bay
+      const svgLayer = document.getElementById("cable-layer");
+      let activeCable = null;
+      let activeSourceJack = null;
+
+      document.querySelectorAll(".jack").forEach((jack) => {
+        const startWire = (e) => {
+          if (!knife.classList.contains("thrown")) return;
+          e.preventDefault();
+          const rect = jack.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+
+          activeSourceJack = jack;
+          activeCable = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          activeCable.setAttribute("class", "patch-cable");
+          activeCable.setAttribute("d", `M ${x} ${y} Q ${x} ${y + 30}, ${x} ${y}`);
+          svgLayer.appendChild(activeCable);
+
+          const moveHandler = (moveEvent) => {
+            const clientX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
+            const clientY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
+            const midX = (x + clientX) / 2;
+            const midY = (y + clientY) / 2 + 40;
+            activeCable.setAttribute("d", `M ${x} ${y} Q ${midX} ${midY}, ${clientX} ${clientY}`);
+          };
+
+          const endHandler = (endEvent) => {
+            window.removeEventListener("mousemove", moveHandler);
+            window.removeEventListener("mouseup", endHandler);
+            window.removeEventListener("touchmove", moveHandler);
+            window.removeEventListener("touchend", endHandler);
+
+            const changeX = endEvent.changedTouches ? endEvent.changedTouches[0].clientX : endEvent.clientX;
+            const changeY = endEvent.changedTouches ? endEvent.changedTouches[0].clientY : endEvent.clientY;
+            const targetEl = document.elementFromPoint(changeX, changeY);
+            const targetJack = targetEl ? targetEl.closest(".jack") : null;
+
+            if (targetJack && targetJack !== activeSourceJack) {
+              zzfx(...SOUNDS.plug);
+              const destRect = targetJack.getBoundingClientRect();
+              const destX = destRect.left + destRect.width / 2;
+              const destY = destRect.top + destRect.height / 2;
+              const midX = (x + destX) / 2;
+              const midY = (y + destY) / 2 + 60;
+
+              activeCable.setAttribute("d", `M ${x} ${y} Q ${midX} ${midY}, ${destX} ${destY}`);
+              triggerRandomEvent(`Patch Cable: Port ${activeSourceJack.dataset.port} ➡️ Port ${targetJack.dataset.port}`);
+            } else {
+              if (activeCable) activeCable.remove();
+            }
+            activeCable = null;
+            activeSourceJack = null;
+          };
+
+          window.addEventListener("mousemove", moveHandler);
+          window.addEventListener("mouseup", endHandler);
+          window.addEventListener("touchmove", moveHandler, { passive: false });
+          window.addEventListener("touchend", endHandler);
+        };
+
+        jack.addEventListener("mousedown", startWire);
+        jack.addEventListener("touchstart", startWire, { passive: false });
+      });
+    </script>
+  </body>
+</html>
